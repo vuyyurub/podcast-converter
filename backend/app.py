@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import boto3
@@ -6,11 +9,15 @@ from newspaper import Article
 from nltk.tokenize import sent_tokenize
 import nltk
 import uuid
-import os
-from pydub import AudioSegment 
+from pydub import AudioSegment
+from urllib.request import urlopen
+import json
 
 nltk.download("punkt")
-
+s3_bucket = "bvuyyuru-polly-bucket"
+AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
+API_AUDIENCE = os.getenv("AUTH0_API_AUDIENCE")
+ALGORITHMS = ["RS256"]
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -20,10 +27,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-s3_bucket = "bvuyyuru-polly-bucket"
+
 
 class ArticleRequest(BaseModel):
     url: str
+
+
+class Auth0Bearer(HTTPBearer):
+    def __init__(self, auto_error: bool = True):
+        super(Auth0Bearer, self).__init__(auto_error=auto_error)
+
+    async def __call__(self, credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
+        if credentials:
+            token = credentials.credentials
+            try:
+                jwks_url = f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
+                jwks = json.loads(urlopen(jwks_url).read())
+                unverified_header = jwt.get_unverified_header(token)
+                rsa_key = {}
+                for key in jwks["keys"]:
+                    if key["kid"] == unverified_header["kid"]:
+                        rsa_key = {
+                            "kty": key["kty"],
+                            "kid": key["kid"],
+                            "use": key["use"],
+                            "n": key["n"],
+                            "e": key["e"],
+                        }
+                if rsa_key:
+                    payload = jwt.decode(
+                        token,
+                        rsa_key,
+                        algorithms=ALGORITHMS,
+                        audience=API_AUDIENCE,
+                        issuer=f"https://{AUTH0_DOMAIN}/",
+                    )
+                    return payload
+            except JWTError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Token validation error: {str(e)}",
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Authentication error: {str(e)}",
+                )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization credentials",
+        )
+
+auth_scheme = Auth0Bearer()
 
 def split_text(text, max_chars=3000):
     sentences = sent_tokenize(text)
@@ -43,7 +98,7 @@ def split_text(text, max_chars=3000):
     return chunks
 
 @app.post("/api/generate")
-def generate_podcast(data: ArticleRequest):
+def generate_podcast(data: ArticleRequest, token: dict = Depends(auth_scheme)): 
     url = data.url
 
     try:
