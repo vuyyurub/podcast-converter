@@ -9,6 +9,8 @@ import boto3
 from jose import jwt, JWTError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
+from boto3.dynamodb.conditions import Key
 import nltk
 import os
 
@@ -25,11 +27,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 s3_bucket = "bvuyyuru-polly-bucket"
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 API_AUDIENCE = os.getenv("AUTH0_API_AUDIENCE")
 ALGORITHMS = ["RS256"]
+
+
+s3 = boto3.client("s3")
+polly = boto3.client("polly")
+dynamodb = boto3.resource("dynamodb")
+podcast_table = dynamodb.Table("Podcasts")
+user_table = dynamodb.Table("Users")
+
 
 class Auth0Bearer(HTTPBearer):
     async def __call__(self, credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
@@ -57,11 +66,13 @@ class Auth0Bearer(HTTPBearer):
 
 auth_scheme = Auth0Bearer()
 
+
 class UrlRequest(BaseModel):
     url: str
 
 class TextRequest(BaseModel):
     text: str
+
 
 def split_text(text, max_chars=3000):
     sentences = sent_tokenize(text)
@@ -77,11 +88,9 @@ def split_text(text, max_chars=3000):
         chunks.append(current_chunk.strip())
     return chunks
 
+
 def synthesize_text_to_audio(text: str, base_filename: str):
     chunks = split_text(text)
-    polly = boto3.client("polly")
-    s3 = boto3.client("s3")
-
     audio_segments = []
     temp_files = []
 
@@ -124,6 +133,7 @@ def synthesize_text_to_audio(text: str, base_filename: str):
 
     return f"https://{s3_bucket}.s3.amazonaws.com/{merged_filename}"
 
+
 @app.post("/api/generate-from-url")
 def generate_from_url(data: UrlRequest, token: dict = Depends(auth_scheme)):
     try:
@@ -139,6 +149,34 @@ def generate_from_url(data: UrlRequest, token: dict = Depends(auth_scheme)):
         raise HTTPException(status_code=400, detail="Article has no text content.")
 
     audio_url = synthesize_text_to_audio(text, title[:50].replace(" ", "_"))
+
+    user_id = token.get("sub")
+    user_email = token.get("email")
+    user_name = token.get("name")
+    try:
+        user_table.put_item(
+            Item={
+                "user_id": user_id,
+                "email": user_email,
+                "name": user_name
+            },
+            ConditionExpression="attribute_not_exists(user_id)"
+        )
+    except:
+        pass
+    podcast_id = str(uuid.uuid4())
+    podcast_table.put_item(
+        Item={
+            "podcast_id": podcast_id,
+            "user_id": user_id,
+            "title": title,
+            "source": "url",
+            "source_url": data.url,
+            "audio_url": audio_url,
+            "created_at": datetime.utcnow().isoformat()
+        }
+    )
+
     return {"audio_url": audio_url}
 
 @app.post("/api/generate-from-text")
@@ -148,4 +186,31 @@ def generate_from_text(data: TextRequest, token: dict = Depends(auth_scheme)):
         raise HTTPException(status_code=400, detail="Input text is empty.")
     title = f"text-{uuid.uuid4()}"
     audio_url = synthesize_text_to_audio(text, title)
+
+    user_id = token.get("sub")
+    user_email = token.get("email")
+    user_name = token.get("name")
+    try:
+        user_table.put_item(
+            Item={
+                "user_id": user_id,
+                "email": user_email,
+                "name": user_name
+            },
+            ConditionExpression="attribute_not_exists(user_id)"
+        )
+    except:
+        pass  
+    podcast_id = str(uuid.uuid4())
+    podcast_table.put_item(
+        Item={
+            "podcast_id": podcast_id,
+            "user_id": user_id,
+            "title": title,
+            "source": "text",
+            "audio_url": audio_url,
+            "created_at": datetime.utcnow().isoformat()
+        }
+    )
+
     return {"audio_url": audio_url}
