@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from newspaper import Article
 import uuid
 from pydub import AudioSegment
+from typing import Optional
 from urllib.request import urlopen
 import json
 import boto3
@@ -22,7 +23,7 @@ load_dotenv()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,6 +74,9 @@ class UrlRequest(BaseModel):
 class TextRequest(BaseModel):
     text: str
 
+class GenerateRequest(BaseModel):
+    url: Optional[str] = None
+    text: Optional[str] = None
 
 def split_text(text, max_chars=3000):
     sentences = sent_tokenize(text)
@@ -132,6 +136,15 @@ def synthesize_text_to_audio(text: str, base_filename: str):
                 os.remove(f)
 
     return f"https://{s3_bucket}.s3.amazonaws.com/{merged_filename}"
+
+@app.post("/api/generate")
+def generate(request: GenerateRequest, token: dict = Depends(auth_scheme)):
+    if request.text:
+        return generate_from_text(TextRequest(text=request.text), token)
+    elif request.url:
+        return generate_from_url(UrlRequest(url=request.url), token)
+    else:
+        raise HTTPException(status_code=400, detail="Either text or URL must be provided.")
 
 
 @app.post("/api/generate-from-url")
@@ -214,3 +227,36 @@ def generate_from_text(data: TextRequest, token: dict = Depends(auth_scheme)):
     )
 
     return {"audio_url": audio_url}
+
+@app.get("/api/podcasts")
+def get_user_podcasts(token: dict = Depends(auth_scheme)):
+    user_id = token.get("sub")
+    try:
+        response = podcast_table.query(
+            IndexName="user_id-index",
+            KeyConditionExpression=Key("user_id").eq(user_id)
+        )
+        return {"podcasts": response.get("Items", [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching podcasts: {e}")
+
+@app.post("/api/podcasts/{podcast_id}/favorite")
+def toggle_favorite(podcast_id: str, token: dict = Depends(auth_scheme)):
+    user_id = token.get("sub")
+    try:
+        response = podcast_table.get_item(Key={"podcast_id": podcast_id})
+        item = response.get("Item")
+        if not item or item.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Unauthorized access to podcast")
+        
+        is_favorite = item.get("is_favorite", False)
+        podcast_table.update_item(
+            Key={"podcast_id": podcast_id},
+            UpdateExpression="SET is_favorite = :val",
+            ExpressionAttributeValues={":val": not is_favorite}
+        )
+        return {"message": "Favorite updated", "is_favorite": not is_favorite}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to toggle favorite: {e}")
+

@@ -2,11 +2,13 @@ import React, { useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 function Login() {
-  const { loginWithRedirect } = useAuth0();
+  const { loginWithRedirect, isAuthenticated } = useAuth0();
 
   useEffect(() => {
-    loginWithRedirect();
-  }, [loginWithRedirect]);
+    if (!isAuthenticated) {
+      loginWithRedirect();
+    }
+  }, [loginWithRedirect, isAuthenticated]);
 
   return (
     <div className="h-screen flex items-center justify-center bg-gradient-to-br from-purple-400 via-pink-300 to-yellow-200">
