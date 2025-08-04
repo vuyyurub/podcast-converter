@@ -32,7 +32,7 @@ function App() {
           <button
             onClick={() =>
               logout({
-                returnTo: `${window.location.origin}/login`, 
+                returnTo: "https://www.podifynews.com/login", 
               })
             }
             className="bg-red-500 text-white px-4 py-2 rounded shadow"
