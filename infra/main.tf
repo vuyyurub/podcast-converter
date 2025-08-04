@@ -2,11 +2,6 @@ provider "aws" {
   region = "us-east-1" # or your preferred region
 }
 
-resource "aws_key_pair" "deployer" {
-  key_name   = "deployer-key"
-  public_key = file("~/.ssh/id_rsa.pub") # make sure this exists
-}
-
 resource "aws_security_group" "web_sg" {
   name        = "allow_http_ssh"
   description = "Allow HTTP and SSH"
@@ -41,9 +36,9 @@ resource "aws_security_group" "web_sg" {
 }
 
 resource "aws_instance" "app_server" {
-  ami           = "ami-0c02fb55956c7d316" # Ubuntu 22.04 LTS (update as needed)
+  ami           = "ami-0c02fb55956c7d316"
   instance_type = "t2.micro"
-  key_name      = aws_key_pair.deployer.key_name
+  key_name      = "podcast-app-key" 
   security_groups = [aws_security_group.web_sg.name]
 
   user_data = file("provision.sh")
