@@ -18,27 +18,54 @@ import os
 nltk.download("punkt")
 from nltk.tokenize import sent_tokenize
 from dotenv import load_dotenv
+
+
 load_dotenv()
 
 app = FastAPI()
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-s3_bucket = "bvuyyuru-polly-bucket"
+
+
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_BUCKET = os.getenv("S3_BUCKET", "bvuyyuru-polly-bucket")
+
+
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 API_AUDIENCE = os.getenv("AUTH0_API_AUDIENCE")
 ALGORITHMS = ["RS256"]
 
 
-s3 = boto3.client("s3")
-polly = boto3.client("polly")
-dynamodb = boto3.resource("dynamodb")
-podcast_table = dynamodb.Table("Podcasts")
-user_table = dynamodb.Table("Users")
+s3 = boto3.client(
+    "s3",
+    region_name=AWS_REGION,
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+)
+
+polly = boto3.client(
+    "polly",
+    region_name=AWS_REGION,
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+)
+
+dynamodb = boto3.resource(
+    "dynamodb",
+    region_name=AWS_REGION,
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+)
+
+podcast_table = dynamodb.Table(os.getenv("DYNAMODB_PODCAST_TABLE", "Podcasts"))
+user_table = dynamodb.Table(os.getenv("DYNAMODB_USER_TABLE", "Users"))
 
 
 class Auth0Bearer(HTTPBearer):
@@ -104,7 +131,7 @@ def synthesize_text_to_audio(text: str, base_filename: str):
             response = polly.synthesize_speech(
                 Text=chunk,
                 OutputFormat="mp3",
-                VoiceId="Joanna"
+                VoiceId=os.getenv("POLLY_VOICE_ID", "Joanna")
             )
             with open(filename, "wb") as f:
                 f.write(response["AudioStream"].read())
@@ -127,7 +154,12 @@ def synthesize_text_to_audio(text: str, base_filename: str):
     merged_audio.export(merged_filename, format="mp3")
 
     try:
-        s3.upload_file(merged_filename, s3_bucket, merged_filename)
+        s3.upload_file(
+            merged_filename, 
+            S3_BUCKET, 
+            merged_filename,
+            ExtraArgs={'ACL': 'public-read'}
+        )
     except Exception as e:
         raise RuntimeError(f"S3 upload failed: {e}")
     finally:
@@ -135,7 +167,7 @@ def synthesize_text_to_audio(text: str, base_filename: str):
             if os.path.exists(f):
                 os.remove(f)
 
-    return f"https://{s3_bucket}.s3.amazonaws.com/{merged_filename}"
+    return f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{merged_filename}"
 
 @app.post("/api/generate")
 def generate(request: GenerateRequest, token: dict = Depends(auth_scheme)):
@@ -235,7 +267,6 @@ def get_user_podcasts(token: dict = Depends(auth_scheme)):
         response = podcast_table.query(
             IndexName="user_id-index",
             KeyConditionExpression=Key("user_id").eq(user_id)
-        )
         return {"podcasts": response.get("Items", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching podcasts: {e}")
@@ -259,4 +290,3 @@ def toggle_favorite(podcast_id: str, token: dict = Depends(auth_scheme)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to toggle favorite: {e}")
-

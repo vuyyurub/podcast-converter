@@ -12,7 +12,7 @@ function PodcastList() {
   const fetchPodcasts = async () => {
     try {
       const token = await getAccessTokenSilently();
-      const res = await fetch("http://localhost:8000/api/podcasts", {
+      const res = await fetch("https://podifynews.com/api/podcasts", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -33,7 +33,7 @@ function PodcastList() {
   const toggleFavorite = async (podcastId) => {
     try {
       const token = await getAccessTokenSilently();
-      await fetch(`http://localhost:8000/api/podcasts/${podcastId}/favorite`, {
+      await fetch(`https://podifynews.com/api/podcasts/${podcastId}/favorite`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,

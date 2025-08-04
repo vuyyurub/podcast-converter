@@ -17,7 +17,7 @@ function Home() {
 
     try {
       const token = await getAccessTokenSilently();
-      const res = await fetch("http://localhost:8000/api/generate", {
+      const res = await fetch("https://podifynews.com/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
