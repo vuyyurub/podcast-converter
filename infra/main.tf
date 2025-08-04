@@ -2,7 +2,7 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# VPC and networking (ALB requires a VPC)
+# VPC and networking
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -104,15 +104,15 @@ resource "aws_security_group" "ec2_sg" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    cidr_blocks     = ["0.0.0.0/0"]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    from_port       = 80
-    to_port         = 80
+    from_port       = 3000
+    to_port         = 3000
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
@@ -151,6 +151,40 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
+# Certificate validation
+resource "aws_acm_certificate_validation" "cert" {
+  certificate_arn         = aws_acm_certificate.cert.arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+  
+  timeouts {
+    create = "10m"
+  }
+}
+
+# Route53 hosted zone (if you don't have one, comment this out)
+data "aws_route53_zone" "main" {
+  name         = "podifynews.com"
+  private_zone = false
+}
+
+# DNS validation records
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id
+}
+
 # EC2 Instance
 resource "aws_instance" "app_server" {
   ami                    = "ami-0c02fb55956c7d316"
@@ -182,7 +216,7 @@ resource "aws_lb" "main" {
 # Target Groups
 resource "aws_lb_target_group" "frontend" {
   name     = "frontend-tg"
-  port     = 80
+  port     = 3000
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
@@ -194,6 +228,7 @@ resource "aws_lb_target_group" "frontend" {
     interval            = 30
     path                = "/"
     matcher             = "200"
+    port                = "3000"
   }
 
   tags = {
@@ -215,6 +250,7 @@ resource "aws_lb_target_group" "backend" {
     interval            = 30
     path                = "/"
     matcher             = "200"
+    port                = "8000"
   }
 
   tags = {
@@ -226,7 +262,7 @@ resource "aws_lb_target_group" "backend" {
 resource "aws_lb_target_group_attachment" "frontend" {
   target_group_arn = aws_lb_target_group.frontend.arn
   target_id        = aws_instance.app_server.id
-  port             = 80
+  port             = 3000
 }
 
 resource "aws_lb_target_group_attachment" "backend" {
@@ -257,7 +293,7 @@ resource "aws_lb_listener" "https" {
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = aws_acm_certificate.cert.arn
+  certificate_arn   = aws_acm_certificate_validation.cert.certificate_arn
 
   default_action {
     type             = "forward"
@@ -282,17 +318,40 @@ resource "aws_lb_listener_rule" "api" {
   }
 }
 
+# DNS record pointing to load balancer
+resource "aws_route53_record" "main" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "podifynews.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_route53_record" "www" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "www.podifynews.com"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
 # Outputs
 output "load_balancer_dns" {
   value = aws_lb.main.dns_name
 }
 
-output "certificate_validation_records" {
-  value = {
-    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
+output "instance_public_ip" {
+  value = aws_instance.app_server.public_ip
+}
+
+output "certificate_arn" {
+  value = aws_acm_certificate.cert.arn
 }
