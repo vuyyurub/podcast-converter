@@ -151,39 +151,7 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
-# Certificate validation
-resource "aws_acm_certificate_validation" "cert" {
-  certificate_arn         = aws_acm_certificate.cert.arn
-  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
-  
-  timeouts {
-    create = "10m"
-  }
-}
-
-# Route53 hosted zone (if you don't have one, comment this out)
-data "aws_route53_zone" "main" {
-  name         = "podifynews.com"
-  private_zone = false
-}
-
-# DNS validation records
-resource "aws_route53_record" "cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-
-  allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.main.zone_id
-}
+# Certificate validation will be done manually
 
 # EC2 Instance
 resource "aws_instance" "app_server" {
@@ -293,7 +261,7 @@ resource "aws_lb_listener" "https" {
   port              = "443"
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = aws_acm_certificate_validation.cert.certificate_arn
+  certificate_arn   = aws_acm_certificate.cert.arn
 
   default_action {
     type             = "forward"
@@ -318,30 +286,7 @@ resource "aws_lb_listener_rule" "api" {
   }
 }
 
-# DNS record pointing to load balancer
-resource "aws_route53_record" "main" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "podifynews.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
-  }
-}
-
-resource "aws_route53_record" "www" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "www.podifynews.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
-  }
-}
+# You'll need to manually point your domain to this load balancer DNS name
 
 # Outputs
 output "load_balancer_dns" {
@@ -352,6 +297,13 @@ output "instance_public_ip" {
   value = aws_instance.app_server.public_ip
 }
 
-output "certificate_arn" {
-  value = aws_acm_certificate.cert.arn
+output "certificate_validation_records" {
+  description = "Add these DNS records to your domain registrar to validate the SSL certificate"
+  value = {
+    for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
 }
