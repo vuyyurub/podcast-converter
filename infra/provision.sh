@@ -1,19 +1,12 @@
 #!/bin/bash
-
-# Update and install Docker + Docker Compose
-sudo apt update -y
-sudo apt install -y docker.io docker-compose
-
-# Add ubuntu user to Docker group (no need to relogin for current session)
-sudo usermod -aG docker ubuntu
-newgrp docker  # Apply group changes immediately
-
-# Fetch your application code (example using Git)
-sudo -u ubuntu git clone https://github.com/vuyyurub/podcast-converter.git /home/ubuntu/app
-
-# Navigate to app directory and start containers
-cd /home/ubuntu/app
+sudo yum update -y
+sudo yum install -y docker git
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" \
+  -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+sudo usermod -aG docker ec2-user
+sudo -u ec2-user git clone https://github.com/vuyyurub/podcast-converter.git /home/ec2-user/app
+cd /home/ec2-user/app
 sudo docker-compose up -d --build
-
-# Optional: Verify containers are running
-sudo docker ps
