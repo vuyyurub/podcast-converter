@@ -267,6 +267,7 @@ def get_user_podcasts(token: dict = Depends(auth_scheme)):
         response = podcast_table.query(
             IndexName="user_id-index",
             KeyConditionExpression=Key("user_id").eq(user_id)
+        )
         return {"podcasts": response.get("Items", [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching podcasts: {e}")
