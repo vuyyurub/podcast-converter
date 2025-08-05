@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Download nltk data (punkt tokenizer)
-RUN python -m nltk.downloader punkt
+RUN python -m nltk.downloader punkt punkt_tab
 
 # Set environment variables (optional if you're using .env inside your code)
 ENV PYTHONUNBUFFERED=1
