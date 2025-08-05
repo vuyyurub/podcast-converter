@@ -158,7 +158,6 @@ def synthesize_text_to_audio(text: str, base_filename: str):
             merged_filename, 
             S3_BUCKET, 
             merged_filename,
-            ExtraArgs={'ACL': 'public-read'}
         )
     except Exception as e:
         raise RuntimeError(f"S3 upload failed: {e}")
