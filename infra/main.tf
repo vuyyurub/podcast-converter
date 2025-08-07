@@ -151,7 +151,6 @@ resource "aws_acm_certificate" "cert" {
   }
 }
 
-# Certificate validation will be done manually
 
 # EC2 Instance
 resource "aws_instance" "app_server" {
@@ -286,7 +285,7 @@ resource "aws_lb_listener_rule" "api" {
   }
 }
 
-# You'll need to manually point your domain to this load balancer DNS name
+
 
 # Outputs
 output "load_balancer_dns" {
